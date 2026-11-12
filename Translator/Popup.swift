@@ -8,6 +8,10 @@ enum PopupContent {
     case request(text: String, source: Locale.Language, target: Locale.Language)
 }
 
+private final class TranslationPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 /// Non-activating floating panel at the cursor.
 @MainActor
 enum Popup {
@@ -19,7 +23,7 @@ enum Popup {
         close()
         let host = NSHostingView(rootView: PopupView(content: content))
         let size = NSSize(width: 380, height: 300)
-        let p = NSPanel(
+        let p = TranslationPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
         p.contentView = host
@@ -37,7 +41,7 @@ enum Popup {
         let screen = NSScreen.screens.first { $0.frame.contains(anchor) } ?? NSScreen.main
         let bounds = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
         p.setFrameOrigin(position.origin(size: size, pointer: mouse, selection: selectionBounds, visibleFrame: bounds))
-        p.orderFrontRegardless()
+        p.makeKeyAndOrderFront(nil)
         panel = p
         if let monitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .keyDown],
@@ -145,10 +149,12 @@ struct TranslationView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
-                Button("Copy", systemImage: "doc.on.doc") {
+                Button("Copy ⌘C", systemImage: "doc.on.doc") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(translated, forType: .string)
                 }
+                .keyboardShortcut("c", modifiers: .command)
+                .help("Copy translation (⌘C)")
                 Button("Speak", systemImage: "speaker.wave.2") { Popup.speak(translated, target) }
                 Spacer()
                 Button("Swap", systemImage: "arrow.left.arrow.right") {
