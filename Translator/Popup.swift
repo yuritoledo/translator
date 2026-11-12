@@ -28,9 +28,11 @@ enum Popup {
         return panelIsVisible
     }
 
-    static func show(_ content: PopupContent, selectionBounds: CGRect? = nil) {
+    static func show(
+        _ content: PopupContent, selectionBounds: CGRect? = nil, replacement: SelectionReplacement? = nil
+    ) {
         close()
-        let host = NSHostingView(rootView: PopupView(content: content))
+        let host = NSHostingView(rootView: PopupView(content: content, replacement: replacement))
         let size = NSSize(width: 380, height: 300)
         let floatingPanel = TranslationPanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -105,6 +107,7 @@ enum Popup {
 
 private struct PopupView: View {
     let content: PopupContent
+    let replacement: SelectionReplacement?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -120,7 +123,7 @@ private struct PopupView: View {
                 Text(text).foregroundStyle(.secondary)
                 Spacer()
             case .request(let text, let source, let target):
-                TranslationView(text: text, source: source, target: target, isPopup: true)
+                TranslationView(text: text, source: source, target: target, isPopup: true, replacement: replacement)
             }
         }
         .padding(16)
@@ -139,14 +142,17 @@ struct TranslationView: View {
     @State private var busy = true
     @State private var downloadState = LanguageDownloadState()
     private let isPopup: Bool
+    private let replacement: SelectionReplacement?
     private let availabilityChecker: LanguageAvailabilityChecking
 
     init(
         text: String, source: Locale.Language, target: Locale.Language,
         cachedTranslation: String? = nil, isPopup: Bool = false,
+        replacement: SelectionReplacement? = nil,
         availabilityChecker: LanguageAvailabilityChecking = SystemLanguageAvailabilityChecker()
     ) {
         self.isPopup = isPopup
+        self.replacement = replacement
         _text = State(initialValue: text)
         _source = State(initialValue: source)
         _target = State(initialValue: target)
@@ -207,6 +213,24 @@ struct TranslationView: View {
                     configuration = .init(source: source, target: target)
                 }
             }.disabled(busy || translated.isEmpty)
+
+            if isPopup {
+                HStack {
+                    Spacer()
+                    Button("Replace ⌥R", systemImage: "arrow.turn.down.left") {
+                        do {
+                            guard let replacement else { throw SelectionReplacement.Failure.unavailable }
+                            try replacement.replace(with: translated)
+                            Popup.close()
+                        } catch {
+                            self.error = error.localizedDescription
+                        }
+                    }
+                    .keyboardShortcut("r", modifiers: .option)
+                    .help("Replace the original Selection with this translation (⌥R)")
+                    .disabled(busy || translated.isEmpty)
+                }
+            }
         }
         .translationTask(configuration) { session in
             do {
