@@ -27,11 +27,15 @@ enum Translator {
         }
         // Read bounds before sending copy; some apps collapse their selection on copy.
         let bounds = PopupPosition.saved == .belowSelection ? SelectionBounds.current() : nil
+        let replacement = SelectionReplacement.capture()
         guard let text = await Capture.selection() else {
             Popup.show(.message("No text was copied.\n\n\(Capture.diagnostic)"), selectionBounds: bounds)
             return
         }
-        Popup.show(content(for: text), selectionBounds: bounds)
+        Popup.show(
+            content(for: text), selectionBounds: bounds,
+            replacement: replacement?.originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+                == text.trimmingCharacters(in: .whitespacesAndNewlines) ? replacement : nil)
     }
 
     static func content(for text: String) -> PopupContent {
