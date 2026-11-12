@@ -14,34 +14,45 @@ enum Popup {
     private static var panel: NSPanel?
     private static var monitors: [Any] = []
     private static let synth = AVSpeechSynthesizer()
+    static var isPreservingPopup = false
+
+    static var isShown: Bool {
+        guard let panel else {
+            return false
+        }
+        let panelIsVisible = panel.isVisible
+        return panelIsVisible
+    }
 
     static func show(_ content: PopupContent, selectionBounds: CGRect? = nil) {
         close()
         let host = NSHostingView(rootView: PopupView(content: content))
         let size = NSSize(width: 380, height: 300)
-        let p = NSPanel(
+        let floatingPanel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
-        p.contentView = host
-        p.level = .floating
-        p.isOpaque = false
-        p.backgroundColor = .clear
-        p.hasShadow = true
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.isReleasedWhenClosed = false
-        p.hidesOnDeactivate = false
+        floatingPanel.contentView = host
+        floatingPanel.level = .floating
+        floatingPanel.isOpaque = false
+        floatingPanel.backgroundColor = .clear
+        floatingPanel.hasShadow = true
+        floatingPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        floatingPanel.isReleasedWhenClosed = false
+        floatingPanel.hidesOnDeactivate = false
         let mouse = NSEvent.mouseLocation
         let position = PopupPosition.saved
         let anchor =
             position == .belowSelection ? selectionBounds.map { NSPoint(x: $0.midX, y: $0.midY) } ?? mouse : mouse
         let screen = NSScreen.screens.first { $0.frame.contains(anchor) } ?? NSScreen.main
         let bounds = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
-        p.setFrameOrigin(position.origin(size: size, pointer: mouse, selection: selectionBounds, visibleFrame: bounds))
-        p.orderFrontRegardless()
-        panel = p
+        floatingPanel.setFrameOrigin(
+            position.origin(size: size, pointer: mouse, selection: selectionBounds, visibleFrame: bounds))
+        floatingPanel.orderFrontRegardless()
+        panel = floatingPanel
         if let monitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .keyDown],
             handler: { event in
+                guard !isPreservingPopup else { return }
                 if event.type != .keyDown || event.keyCode == 53 {
                     Task { @MainActor in close() }
                 }
@@ -56,7 +67,12 @@ enum Popup {
                     close()
                     return nil
                 }
-                if event.type != .keyDown && event.window !== panel { close() }
+                guard !isPreservingPopup else { return event }
+                let isCurrentPanel = event.window === panel
+                let isSheet = event.window?.sheetParent === panel || panel?.attachedSheet === event.window
+                if event.type != .keyDown && !isCurrentPanel && !isSheet {
+                    close()
+                }
                 return event
             })
         {
@@ -117,28 +133,61 @@ struct TranslationView: View {
     @State private var translated = ""
     @State private var error: String?
     @State private var busy = true
+    @State private var isSourceDownloading = false
+    @State private var isTargetDownloading = false
 
-    init(text: String, source: Locale.Language, target: Locale.Language, cachedTranslation: String? = nil) {
+    private let availabilityChecker: LanguageAvailabilityChecking
+
+    init(
+        text: String,
+        source: Locale.Language,
+        target: Locale.Language,
+        cachedTranslation: String? = nil,
+        availabilityChecker: LanguageAvailabilityChecking = SystemLanguageAvailabilityChecker()
+    ) {
         _text = State(initialValue: text)
         _source = State(initialValue: source)
         _target = State(initialValue: target)
         _translated = State(initialValue: cachedTranslation ?? "")
-        _busy = State(initialValue: cachedTranslation == nil)
-        _configuration = State(initialValue: cachedTranslation == nil ? .init(source: source, target: target) : nil)
+        let hasCache = cachedTranslation != nil
+        _busy = State(initialValue: !hasCache)
+        _configuration = State(initialValue: hasCache ? nil : .init(source: source, target: target))
+        self.availabilityChecker = availabilityChecker
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("\(name(source)) → \(name(target))")
-                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    Text(name(source))
+                    if isSourceDownloading {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                Text("→")
+                HStack(spacing: 4) {
+                    Text(name(target))
+                    if isTargetDownloading {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(text).foregroundStyle(.secondary).textSelection(.enabled)
-                    if busy { ProgressView("Translating…") }
+                    if busy {
+                        ProgressView("Translating…")
+                    }
                     if let error { Text(error).foregroundStyle(.red) }
                     if !translated.isEmpty { Text(translated).textSelection(.enabled) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
+
             HStack {
                 Button("Copy", systemImage: "doc.on.doc") {
                     NSPasteboard.general.clearContents()
@@ -157,10 +206,27 @@ struct TranslationView: View {
                 }
             }.disabled(busy || translated.isEmpty)
         }
+        .task(id: "\(source.minimalIdentifier)->\(target.minimalIdentifier)") {
+            guard translated.isEmpty else { return }
+            let isInstalled = await availabilityChecker.isLanguagePairInstalled(source: source, target: target)
+            if !isInstalled {
+                let sourceInstalled = await availabilityChecker.isLanguageInstalled(source)
+                let targetInstalled = await availabilityChecker.isLanguageInstalled(target)
+                isSourceDownloading = !sourceInstalled || targetInstalled
+                isTargetDownloading = !targetInstalled || sourceInstalled
+            }
+        }
         .translationTask(configuration) { session in
             do {
-                // This view-hosted API can ask the user to download missing packs.
+                Popup.isPreservingPopup = true
+                defer {
+                    Popup.isPreservingPopup = false
+                    isSourceDownloading = false
+                    isTargetDownloading = false
+                }
+                NSApp.activate(ignoringOtherApps: true)
                 try await session.prepareTranslation()
+                Popup.isPreservingPopup = false
                 let response = try await session.translate(text)
                 guard !Task.isCancelled else { return }
                 translated = response.targetText
@@ -177,6 +243,9 @@ struct TranslationView: View {
     }
 
     private func name(_ language: Locale.Language) -> String {
-        Locale.current.localizedString(forIdentifier: language.minimalIdentifier) ?? language.minimalIdentifier
+        let identifier = language.minimalIdentifier
+        let localizedName = Locale.current.localizedString(forIdentifier: identifier)
+        let resolvedName = localizedName ?? identifier
+        return resolvedName
     }
 }

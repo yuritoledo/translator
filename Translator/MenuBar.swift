@@ -30,7 +30,7 @@ final class StatusBar: NSObject, NSPopoverDelegate {
             button.target = self
             button.action = #selector(toggle)
         }
-        popover.behavior = .transient
+        popover.behavior = .semitransient
         popover.animates = false
         popover.delegate = self
         popover.contentSize = NSSize(width: 420, height: 510)
