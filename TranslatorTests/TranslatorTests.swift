@@ -4,6 +4,23 @@ import XCTest
 
 @testable import Translator
 
+struct MockLanguageAvailabilityChecker: LanguageAvailabilityChecking {
+    var installedLanguages: Set<String>
+
+    func isLanguageInstalled(_ language: Locale.Language) async -> Bool {
+        let identifier = language.minimalIdentifier
+        let isInstalled = installedLanguages.contains(identifier)
+        return isInstalled
+    }
+
+    func isLanguagePairInstalled(source: Locale.Language, target: Locale.Language) async -> Bool {
+        let sourceInstalled = await isLanguageInstalled(source)
+        let targetInstalled = await isLanguageInstalled(target)
+        let bothInstalled = sourceInstalled && targetInstalled
+        return bothInstalled
+    }
+}
+
 final class TranslatorTests: XCTestCase {
     func testSelectionPopupAppearsBelowSelection() {
         let origin = PopupPosition.belowSelection.origin(
@@ -84,6 +101,63 @@ final class TranslatorTests: XCTestCase {
         StatusBar.shared.close()
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertFalse(StatusBar.shared.isShown)
+    }
+
+    @MainActor func testAvailabilityMockReportsInstalledLanguages() async throws {
+        let mockChecker = MockLanguageAvailabilityChecker(installedLanguages: ["en"])
+        let german = Locale.Language(identifier: "de")
+        let english = Locale.Language(identifier: "en")
+
+        let sourceInstalled = await mockChecker.isLanguageInstalled(german)
+        let targetInstalled = await mockChecker.isLanguageInstalled(english)
+
+        XCTAssertFalse(sourceInstalled)
+        XCTAssertTrue(targetInstalled)
+    }
+
+    @MainActor func testLanguagePairInstallationRequiresBothLanguages() async throws {
+        var mockChecker = MockLanguageAvailabilityChecker(installedLanguages: ["en"])
+        let german = Locale.Language(identifier: "de")
+        let english = Locale.Language(identifier: "en")
+
+        let initiallyInstalled = await mockChecker.isLanguagePairInstalled(source: german, target: english)
+        XCTAssertFalse(initiallyInstalled)
+
+        mockChecker.installedLanguages.insert("de")
+        let fullyInstalled = await mockChecker.isLanguagePairInstalled(source: german, target: english)
+        XCTAssertTrue(fullyInstalled)
+    }
+
+    @MainActor func testPopupIgnoresOutsideClicksOnlyWhilePreparingLanguages() throws {
+        Popup.show(.message("Preparing languages"))
+        defer {
+            Popup.isPreservingPopup = false
+            Popup.close()
+        }
+        let outsideWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        outsideWindow.isReleasedWhenClosed = false
+        defer { outsideWindow.close() }
+        let click = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: outsideWindow.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
+
+        Popup.isPreservingPopup = true
+        NSApp.sendEvent(click)
+        XCTAssertTrue(Popup.isShown, "Download dialog clicks must not dismiss the popup")
+
+        Popup.isPreservingPopup = false
+        NSApp.sendEvent(click)
+        XCTAssertFalse(Popup.isShown, "Outside clicks must dismiss the popup after preparation")
+    }
+
+    @MainActor func testSystemLanguageAvailabilityCheckerInstantiates() async throws {
+        let systemChecker = SystemLanguageAvailabilityChecker()
+        let english = Locale.Language(identifier: "en")
+        _ = await systemChecker.isLanguageInstalled(english)
     }
 
     func testSavedPopupPositionAndUnknownValueFallback() {
