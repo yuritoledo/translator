@@ -33,7 +33,7 @@ final class SelectionReplacement {
 
     init?(target: any SelectionReplacementTarget) {
         guard let text = target.selectedText, let range = target.selectedRange,
-            !text.isEmpty, range.length > 0
+            !text.isEmpty, range.length > 0, target.canReplaceSelection
         else { return nil }
         originalText = text
         self.range = range
