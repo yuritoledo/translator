@@ -100,7 +100,7 @@ private struct PopupView: View {
                 Text(text).foregroundStyle(.secondary)
                 Spacer()
             case .request(let text, let source, let target):
-                TranslationView(text: text, source: source, target: target)
+                TranslationView(text: text, source: source, target: target, isPopup: true)
             }
         }
         .padding(16)
@@ -117,8 +117,13 @@ struct TranslationView: View {
     @State private var translated = ""
     @State private var error: String?
     @State private var busy = true
+    private let isPopup: Bool
 
-    init(text: String, source: Locale.Language, target: Locale.Language, cachedTranslation: String? = nil) {
+    init(
+        text: String, source: Locale.Language, target: Locale.Language,
+        cachedTranslation: String? = nil, isPopup: Bool = false
+    ) {
+        self.isPopup = isPopup
         _text = State(initialValue: text)
         _source = State(initialValue: source)
         _target = State(initialValue: target)
@@ -133,10 +138,10 @@ struct TranslationView: View {
                 .font(.caption).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(text).foregroundStyle(.secondary).textSelection(.enabled)
+                    if !isPopup { Text(text).foregroundStyle(.secondary).textSelection(.enabled) }
                     if busy { ProgressView("Translating…") }
                     if let error { Text(error).foregroundStyle(.red) }
-                    if !translated.isEmpty { Text(translated).textSelection(.enabled) }
+                    if !translated.isEmpty { Text(translated).font(isPopup ? .title3 : .body).textSelection(.enabled) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
