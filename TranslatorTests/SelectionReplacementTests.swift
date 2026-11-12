@@ -82,6 +82,19 @@ final class SelectionReplacementTests: XCTestCase {
         XCTAssertNil(SelectionReplacement(target: target))
     }
 
+    @MainActor func testReadOnlySelectionDoesNotCreateReplacement() {
+        let target = FakeSelectionTarget()
+        target.canReplaceSelection = false
+        XCTAssertNil(SelectionReplacement(target: target))
+    }
+
+    @MainActor func testReplaceButtonIsHiddenWithoutEditableSelection() async throws {
+        let window = replacementWindow(replacement: nil, cachedTranslation: "Hello, world")
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(window.performKeyEquivalent(with: try optionR(window: window)))
+    }
+
     @MainActor func testReplacementCannotRunTwice() throws {
         let target = FakeSelectionTarget()
         let replacement = try XCTUnwrap(SelectionReplacement(target: target))
@@ -122,10 +135,10 @@ final class SelectionReplacementTests: XCTestCase {
     }
 
     @MainActor private func replacementWindow(
-        replacement: SelectionReplacement, cachedTranslation: String, isPopup: Bool = true
+        replacement: SelectionReplacement?, cachedTranslation: String, isPopup: Bool = true
     ) -> NSWindow {
         let view = TranslationView(
-            text: replacement.originalText, source: Locale.Language(identifier: "pt"),
+            text: replacement?.originalText ?? "Olá, mundo", source: Locale.Language(identifier: "pt"),
             target: Locale.Language(identifier: "en"), cachedTranslation: cachedTranslation,
             isPopup: isPopup, replacement: replacement)
         let window = NSWindow(

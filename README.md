@@ -8,7 +8,7 @@
 ## Features
 
 - **⌥T:** translate selected text without leaving the current app.
-- **Replace ⌥R:** replace the original Selection after reviewing the translation. Works while the selected-text popup is focused.
+- **Replace ⌥R:** replace the original Selection after reviewing the translation. Shown only when the Selection is in an editable field. Read-only text shows no Replace button.
 - Replacement uses Accessibility selected-text support. If the app does not support it or the Selection changes, use Copy instead.
 - **⌥⇧T:** open or close the typed popup under the menu bar icon.
 - **⌘Return:** translate typed or pasted text.

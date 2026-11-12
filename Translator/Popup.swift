@@ -214,12 +214,11 @@ struct TranslationView: View {
                 }
             }.disabled(busy || translated.isEmpty)
 
-            if isPopup {
+            if isPopup, let replacement {
                 HStack {
                     Spacer()
                     Button("Replace ⌥R", systemImage: "arrow.turn.down.left") {
                         do {
-                            guard let replacement else { throw SelectionReplacement.Failure.unavailable }
                             try replacement.replace(with: translated)
                             Popup.close()
                         } catch {
