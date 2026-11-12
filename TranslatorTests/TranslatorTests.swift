@@ -103,7 +103,7 @@ final class TranslatorTests: XCTestCase {
         XCTAssertFalse(StatusBar.shared.isShown)
     }
 
-    @MainActor func testLanguageDownloadStateShowsSpinnersWhileDownloading() async throws {
+    @MainActor func testAvailabilityMockReportsInstalledLanguages() async throws {
         let mockChecker = MockLanguageAvailabilityChecker(installedLanguages: ["en"])
         let german = Locale.Language(identifier: "de")
         let english = Locale.Language(identifier: "en")
@@ -128,20 +128,30 @@ final class TranslatorTests: XCTestCase {
         XCTAssertTrue(fullyInstalled)
     }
 
-    @MainActor func testPopupWithUninstalledLanguageOpensNormallyWithoutClosing() async throws {
-        let content = PopupContent.request(
-            text: "Guten Tag",
-            source: Locale.Language(identifier: "de"),
-            target: Locale.Language(identifier: "en")
-        )
+    @MainActor func testPopupIgnoresOutsideClicksOnlyWhilePreparingLanguages() throws {
+        Popup.show(.message("Preparing languages"))
+        defer {
+            Popup.isPreservingPopup = false
+            Popup.close()
+        }
+        let outsideWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        outsideWindow.isReleasedWhenClosed = false
+        defer { outsideWindow.close() }
+        let click = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: outsideWindow.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: 1))
 
-        Popup.show(content)
-        try await Task.sleep(for: .milliseconds(300))
+        Popup.isPreservingPopup = true
+        NSApp.sendEvent(click)
+        XCTAssertTrue(Popup.isShown, "Download dialog clicks must not dismiss the popup")
 
-        XCTAssertTrue(Popup.isShown)
-        Popup.close()
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertFalse(Popup.isShown)
+        Popup.isPreservingPopup = false
+        NSApp.sendEvent(click)
+        XCTAssertFalse(Popup.isShown, "Outside clicks must dismiss the popup after preparation")
     }
 
     @MainActor func testSystemLanguageAvailabilityCheckerInstantiates() async throws {

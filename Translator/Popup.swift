@@ -8,6 +8,10 @@ enum PopupContent {
     case request(text: String, source: Locale.Language, target: Locale.Language)
 }
 
+private final class TranslationPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 /// Non-activating floating panel at the cursor.
 @MainActor
 enum Popup {
@@ -28,7 +32,7 @@ enum Popup {
         close()
         let host = NSHostingView(rootView: PopupView(content: content))
         let size = NSSize(width: 380, height: 300)
-        let floatingPanel = NSPanel(
+        let floatingPanel = TranslationPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
         floatingPanel.contentView = host
@@ -47,7 +51,7 @@ enum Popup {
         let bounds = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
         floatingPanel.setFrameOrigin(
             position.origin(size: size, pointer: mouse, selection: selectionBounds, visibleFrame: bounds))
-        floatingPanel.orderFrontRegardless()
+        floatingPanel.makeKeyAndOrderFront(nil)
         panel = floatingPanel
         if let monitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .keyDown],
@@ -116,7 +120,7 @@ private struct PopupView: View {
                 Text(text).foregroundStyle(.secondary)
                 Spacer()
             case .request(let text, let source, let target):
-                TranslationView(text: text, source: source, target: target)
+                TranslationView(text: text, source: source, target: target, isPopup: true)
             }
         }
         .padding(16)
@@ -133,18 +137,16 @@ struct TranslationView: View {
     @State private var translated = ""
     @State private var error: String?
     @State private var busy = true
-    @State private var isSourceDownloading = false
-    @State private var isTargetDownloading = false
-
+    @State private var downloadState = LanguageDownloadState()
+    private let isPopup: Bool
     private let availabilityChecker: LanguageAvailabilityChecking
 
     init(
-        text: String,
-        source: Locale.Language,
-        target: Locale.Language,
-        cachedTranslation: String? = nil,
+        text: String, source: Locale.Language, target: Locale.Language,
+        cachedTranslation: String? = nil, isPopup: Bool = false,
         availabilityChecker: LanguageAvailabilityChecking = SystemLanguageAvailabilityChecker()
     ) {
+        self.isPopup = isPopup
         _text = State(initialValue: text)
         _source = State(initialValue: source)
         _target = State(initialValue: target)
@@ -160,7 +162,7 @@ struct TranslationView: View {
             HStack(spacing: 6) {
                 HStack(spacing: 4) {
                     Text(name(source))
-                    if isSourceDownloading {
+                    if downloadState.isSourceDownloading {
                         ProgressView()
                             .controlSize(.small)
                     }
@@ -168,7 +170,7 @@ struct TranslationView: View {
                 Text("→")
                 HStack(spacing: 4) {
                     Text(name(target))
-                    if isTargetDownloading {
+                    if downloadState.isTargetDownloading {
                         ProgressView()
                             .controlSize(.small)
                     }
@@ -179,20 +181,20 @@ struct TranslationView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(text).foregroundStyle(.secondary).textSelection(.enabled)
-                    if busy {
-                        ProgressView("Translating…")
-                    }
+                    if !isPopup { Text(text).foregroundStyle(.secondary).textSelection(.enabled) }
+                    if busy { ProgressView("Translating…") }
                     if let error { Text(error).foregroundStyle(.red) }
-                    if !translated.isEmpty { Text(translated).textSelection(.enabled) }
+                    if !translated.isEmpty { Text(translated).font(isPopup ? .title3 : .body).textSelection(.enabled) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack {
-                Button("Copy", systemImage: "doc.on.doc") {
+                Button("Copy ⌘C", systemImage: "doc.on.doc") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(translated, forType: .string)
                 }
+                .keyboardShortcut("c", modifiers: .command)
+                .help("Copy translation (⌘C)")
                 Button("Speak", systemImage: "speaker.wave.2") { Popup.speak(translated, target) }
                 Spacer()
                 Button("Swap", systemImage: "arrow.left.arrow.right") {
@@ -206,26 +208,16 @@ struct TranslationView: View {
                 }
             }.disabled(busy || translated.isEmpty)
         }
-        .task(id: "\(source.minimalIdentifier)->\(target.minimalIdentifier)") {
-            guard translated.isEmpty else { return }
-            let isInstalled = await availabilityChecker.isLanguagePairInstalled(source: source, target: target)
-            if !isInstalled {
-                let sourceInstalled = await availabilityChecker.isLanguageInstalled(source)
-                let targetInstalled = await availabilityChecker.isLanguageInstalled(target)
-                isSourceDownloading = !sourceInstalled || targetInstalled
-                isTargetDownloading = !targetInstalled || sourceInstalled
-            }
-        }
         .translationTask(configuration) { session in
             do {
                 Popup.isPreservingPopup = true
                 defer {
                     Popup.isPreservingPopup = false
-                    isSourceDownloading = false
-                    isTargetDownloading = false
                 }
-                NSApp.activate(ignoringOtherApps: true)
-                try await session.prepareTranslation()
+                try await downloadState.prepare(source: source, target: target, checker: availabilityChecker) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    try await session.prepareTranslation()
+                }
                 Popup.isPreservingPopup = false
                 let response = try await session.translate(text)
                 guard !Task.isCancelled else { return }
