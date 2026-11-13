@@ -31,3 +31,7 @@ _Avoid_: To language, output language
 **Speech**:
 Spoken audio of a Selection or its translation.
 _Avoid_: TTS, voice, read-aloud
+
+**Origin Focus**:
+The external application, window, and UI element that held focus before Translator was opened.
+_Avoid_: Previous window, source window, active app

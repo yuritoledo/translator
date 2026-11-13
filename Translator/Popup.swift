@@ -31,7 +31,8 @@ enum Popup {
     static func show(
         _ content: PopupContent, selectionBounds: CGRect? = nil, replacement: SelectionReplacement? = nil
     ) {
-        close()
+        OriginFocus.shared.capture()
+        close(restoreFocus: false, clearOriginFocus: false)
         let host = NSHostingView(rootView: PopupView(content: content, replacement: replacement))
         let size = NSSize(width: 380, height: 300)
         let floatingPanel = TranslationPanel(
@@ -59,9 +60,13 @@ enum Popup {
             matching: [.leftMouseDown, .rightMouseDown, .keyDown],
             handler: { event in
                 guard !isPreservingPopup else { return }
-                if event.type != .keyDown || event.keyCode == 53 {
-                    Task { @MainActor in close() }
+                if event.type == .keyDown {
+                    if event.keyCode == 53 {
+                        Task { @MainActor in close(restoreFocus: true) }
+                    }
+                    return
                 }
+                Task { @MainActor in close(restoreFocus: false) }
             })
         {
             monitors.append(monitor)
@@ -70,14 +75,14 @@ enum Popup {
             matching: [.leftMouseDown, .rightMouseDown, .keyDown],
             handler: { event in
                 if event.type == .keyDown && event.keyCode == 53 {
-                    close()
+                    close(restoreFocus: true)
                     return nil
                 }
                 guard !isPreservingPopup else { return event }
                 let isCurrentPanel = event.window === panel
                 let isSheet = event.window?.sheetParent === panel || panel?.attachedSheet === event.window
                 if event.type != .keyDown && !isCurrentPanel && !isSheet {
-                    close()
+                    close(restoreFocus: false)
                 }
                 return event
             })
@@ -86,12 +91,22 @@ enum Popup {
         }
     }
 
-    static func close() {
+    static func close(restoreFocus: Bool = true, clearOriginFocus: Bool = true) {
+        let wasShown = panel != nil
         synth.stopSpeaking(at: .immediate)
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         panel?.close()
         panel = nil
+
+        guard wasShown else { return }
+        if restoreFocus {
+            OriginFocus.shared.restore()
+            return
+        }
+        if clearOriginFocus {
+            OriginFocus.shared.clear()
+        }
     }
 
     static func stopSpeaking() {
