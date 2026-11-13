@@ -12,9 +12,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// A real status item gives the global shortcut a stable popover anchor.
 @MainActor
 final class StatusBar: NSObject, NSPopoverDelegate {
+    private enum CloseDisposition {
+        case restoreOriginFocus
+        case preserveOriginFocus
+        case clearOriginFocus
+    }
+
     static let shared = StatusBar()
     private var item: NSStatusItem?
     private let popover = NSPopover()
+    private var closeDisposition: CloseDisposition?
 
     var isShown: Bool { popover.isShown }
     func start() {
@@ -43,7 +50,8 @@ final class StatusBar: NSObject, NSPopoverDelegate {
 
     func show() {
         guard let button = item?.button else { return }
-        Popup.close()
+        OriginFocus.shared.capture()
+        Popup.close(restoreFocus: false, clearOriginFocus: false)
         if !popover.isShown {
             popover.contentViewController = NSHostingController(rootView: TypedPopupView())
             NSApp.activate(ignoringOtherApps: true)
@@ -52,14 +60,38 @@ final class StatusBar: NSObject, NSPopoverDelegate {
         popover.contentViewController?.view.window?.makeKey()
     }
 
-    func close() {
+    func close(restoreFocus: Bool = true, clearOriginFocus: Bool = true) {
+        guard popover.isShown else { return }
+        closeDisposition = resolveCloseDisposition(restoreFocus: restoreFocus, clearOriginFocus: clearOriginFocus)
         popover.close()
     }
 
+    private func resolveCloseDisposition(restoreFocus: Bool, clearOriginFocus: Bool) -> CloseDisposition {
+        if restoreFocus { return .restoreOriginFocus }
+        if clearOriginFocus { return .clearOriginFocus }
+        return .preserveOriginFocus
+    }
+
     func popoverDidClose(_ notification: Notification) {
+        let resolvedDisposition = closeDisposition
+        closeDisposition = nil
         Popup.stopSpeaking()
-        // Release the editor and task. Successful results remain in local history.
         popover.contentViewController = nil
+
+        if resolvedDisposition == .preserveOriginFocus { return }
+        if resolvedDisposition == .restoreOriginFocus || isEscapeKeyEvent(NSApp.currentEvent) {
+            OriginFocus.shared.restore()
+            return
+        }
+        if !Popup.isShown {
+            OriginFocus.shared.clear()
+        }
+    }
+
+    private func isEscapeKeyEvent(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        let isEscape = event.type == .keyDown && event.keyCode == 53
+        return isEscape
     }
 }
 

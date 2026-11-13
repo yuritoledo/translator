@@ -11,8 +11,9 @@ enum Translator {
         guard !capturing else { return }
         capturing = true
         defer { capturing = false }
-        StatusBar.shared.close()
-        Popup.close()
+        OriginFocus.shared.capture()
+        StatusBar.shared.close(restoreFocus: false, clearOriginFocus: false)
+        Popup.close(restoreFocus: false, clearOriginFocus: false)
         guard
             AXIsProcessTrustedWithOptions(
                 [
