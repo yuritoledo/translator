@@ -1,55 +1,50 @@
 # Local code signing
 
-- Local source builds use **ad-hoc signing** by default. They need no paid Apple developer account.
-- Ad-hoc signing checks code integrity. It does not give a stable certificate identity across rebuilds.
-- macOS can require a new Accessibility approval after an ad-hoc rebuild.
-- An optional local code-signing certificate can give successive builds the same certificate-based identity.
+- `scripts/install.sh` automatically creates and reuses a local **`Translator Local Development`** code-signing certificate in your login Keychain. No paid Apple developer account is needed.
+- On your first install, macOS prompts once to trust `Translator Local Development` for code signing. Subsequent updates reuse the same certificate automatically without prompting.
+- If certificate setup or trust is canceled, the installer removes any untrusted certificate from your Keychain and falls back to **ad-hoc signing** (`-`).
 - A self-signed certificate is not an Apple Developer ID. It does not provide notarization or distribution trust on a friend's Mac.
 - Do not share your private key or import another person's key to build this project.
 
 ## Use an existing local certificate
 
+- By default, `scripts/install.sh` uses `Translator Local Development`.
 - List code-signing identities in your own Keychain:
 
 ```sh
 security find-identity -v -p codesigning
 ```
 
-- If you already have a valid identity, pass its name to the installer:
+- To override the default with another valid identity in your Keychain, pass `TRANSLATOR_SIGNING_IDENTITY`:
 
 ```sh
 TRANSLATOR_SIGNING_IDENTITY="Your Local Code Signing Identity" bash scripts/install.sh
 ```
 
 - Replace the example with the name reported by `security`.
-- Quit Translator before installation.
+- The installer automatically stops any running copy of Translator before installing and reopens the updated app afterward.
 - Keep the same identity on future installations. Do not create a new certificate for every build.
 - To use the same identity for development or tests:
 
 ```sh
 xcodegen generate
 xcodebuild -scheme Translator -destination 'platform=macOS' -derivedDataPath build \
-    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Your Local Code Signing Identity" test
+    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Translator Local Development" test
 ```
 
-## Create a certificate, if needed
+## How certificate setup works
 
-- Certificate setup changes your Keychain and trust settings. It is optional and is not part of the installer.
-- Use Keychain Access → Certificate Assistant → Create a Certificate.
-- Choose **Self Signed Root** as the identity type and **Code Signing** as the certificate type.
-- Keep the private key in your own login Keychain.
-- If you change trust settings, restrict trust to code signing. Do not enable general or TLS trust for this purpose.
-- The example [`scripts/local-signing.cnf`](../scripts/local-signing.cnf) records the certificate profile used during development. It contains no certificate, private key, or password.
-- Confirm that `security find-identity -v -p codesigning` lists the new identity before using it.
-- This repository does not automate certificate generation, Keychain import, or trust changes.
+- When `Translator Local Development` is not yet present in `security find-identity -v -p codesigning`, `scripts/install.sh` generates a 10-year RSA-2048 code-signing certificate using [`scripts/local-signing.cnf`](../scripts/local-signing.cnf).
+- It imports the identity into your default login Keychain with `/usr/bin/codesign` access and marks it trusted for code signing only (`security add-trusted-cert -r trustRoot -p codeSign`).
+- [`scripts/local-signing.cnf`](../scripts/local-signing.cnf) contains only the certificate profile (`CN = Translator Local Development`). It contains no certificate, private key, or password.
 
 ## Accessibility approval
 
 - Keep the installed app at `~/Applications/Translator.app`.
 - Grant permission to that copy, not a separate development build.
-- Switching from ad-hoc signing to a certificate can require a fresh approval.
-- If an old entry does not grant access, quit Translator, remove the old entry, add the installed copy, enable it, and reopen the app.
-- Stable signing reduces identity changes. Permission retention still depends on macOS and needs testing on your Mac.
+- When `scripts/install.sh` replaces an existing `~/Applications/Translator.app`, it compares the designated code requirement (`codesign -d -r-`) of the previous bundle against the new bundle.
+- If the designated requirement changed (for example, migrating from an older ad-hoc build to `Translator Local Development`, or between two ad-hoc builds), the installer automatically runs `tccutil reset Accessibility co.yuritoledo.translator` to clear stale entries so you do not have to manually remove and re-add Translator in System Settings.
+- When updating between builds signed with the same certificate, the designated requirement is unchanged and Accessibility permission is preserved automatically.
 
 ## Inspect a build
 
