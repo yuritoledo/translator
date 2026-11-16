@@ -46,8 +46,7 @@ git clone https://github.com/yuritoledo/translator.git
 cd translator
 ```
 
-- Quit any running copy of Translator from its gear menu.
-- Build, install, and open the app:
+- Build, install, and open the app (stops any running copy automatically):
 
 ```sh
 bash scripts/install.sh
@@ -56,8 +55,8 @@ bash scripts/install.sh
 - The script builds a Release app and checks its signature.
 - It installs to **`~/Applications/Translator.app`**. It does not require `sudo`.
 - Look for the translate symbol in the **menu bar**, not the Dock.
-- The default is ad-hoc signing. No certificate from the maintainer is required.
-- An existing local signing certificate is optional. See [local signing](docs/local-signing.md).
+- On the first install, `scripts/install.sh` creates and trusts a local `Translator Local Development` code-signing certificate in your login Keychain so future updates keep macOS Accessibility permissions. See [local signing](docs/local-signing.md).
+- If you cancel the one-time Keychain trust prompt, the installer cleans up the untrusted certificate and falls back to ad-hoc signing (`-`).
 - There is no notarized download or one-click installer yet. Build locally rather than copying another person's development app.
 
 ## First use
@@ -77,16 +76,15 @@ bash scripts/install.sh
 
 ## Update or uninstall
 
-- Quit Translator before updating.
-- Pull the latest code and rerun the installer:
+- Pull the latest code and rerun the installer (it automatically quits any running copy and reopens the updated app):
 
 ```sh
 git pull --ff-only
 bash scripts/install.sh
 ```
 
-- If you use a local signing certificate, pass the same identity on every installation. See [local signing](docs/local-signing.md).
-- Keep the installed app at the same path. Ad-hoc rebuilds can require a new Accessibility approval.
+- `scripts/install.sh` reuses `Translator Local Development` automatically on every update. If you override `TRANSLATOR_SIGNING_IDENTITY`, pass the same custom identity on every installation. See [local signing](docs/local-signing.md).
+- Keep the installed app at the same path. Ad-hoc fallback rebuilds change the binary hash and require a new Accessibility approval.
 - The installer blocks overlapping installations. An interrupted installation can leave `~/Applications/.translator-install`.
 - Before retrying an interrupted installation, confirm that no installer is running. If `previous.app` exists in that directory, preserve or restore it before removing the directory.
 - To uninstall, disable launch at login, clear history, quit, and delete `~/Applications/Translator.app`.
